@@ -34,12 +34,16 @@ class HDChunk(Object):
 class CDChunk(Object):
     def __init__(self, stream):
         self.id = stream.read(0x04).replace(b'\x00', b'').decode("utf-8")
-        unk1 = struct.unpack("<L", stream.read(4))[0] # 00 00
+
+        assert stream.read(4) == b'\x00' * 4
         unk2 = struct.unpack("<L", stream.read(4))[0] # 10 00
+
         self.length = struct.unpack("<L", stream.read(4))[0]
 
         if self.id == 'KWAV':
             self.chunk = KWAV(stream)
+        elif self.id == 'ANG':
+            self.chunk = ANG(stream, self.length)
         elif self.id == 'XXXX':
             if self.length == 0x0300: # Palette
                 self.chunk = stream.read(self.length)
@@ -91,6 +95,16 @@ class KWAV(Object):
 
         logging.debug("KWAV.export: Wrote output on {}".format(filename))
 
+class ANG(Object):
+    def __init__(self, stream, length):
+        self.data = stream.read(length)
+
+    def export(self, directory, filename):
+        return False
+
+        filename = os.path.join(directory, "{}.dat".format(filename))
+        with open(filename, 'wb') as f:
+            f.write(self.data)
 def process(filename):
     logging.debug("Processing file: {}".format(filename))
     if args.export:
