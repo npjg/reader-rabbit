@@ -15,12 +15,7 @@ class Object:
     def __format__(self, spec):
         return self.__repr__()
 
-# Observed chunks:
-# FNT0
-# ANG\x00
-# 
-
-class Chunk(Object):
+class HDChunk(Object):
     def __init__(self, stream):
         self.id = stream.read(0x04).replace(b'\x00', b'').decode("utf-8")
         unk1 = struct.unpack("<L", stream.read(4))[0]
@@ -45,12 +40,43 @@ class CDChunk(Object):
 
         if self.id == 'KWAV':
             self.chunk = KWAV(stream)
+        elif self.id == 'XXXX':
+            if self.length == 0x0300: # Palette
+                self.chunk = stream.read(self.length)
+            else:
+                self.chunk = Container(stream)
         else:
             self.chunk = stream.read(self.length)
 
-class KWAV(Object):
+class Container(Object):
     def __init__(self, stream):
-        assert stream.read(4) == b'KWAV'
+        code = struct.unpack("<L", stream.read(4))[0] # 00 00
+        if code == 0x0c:
+            sncm = struct.unpack("<L", stream.read(4))[0] # 00 00
+        else:
+            sncm = None
+
+        length = struct.unpack("<L", stream.read(4))[0] # 00 00
+
+        id =  stream.read(4).replace(b'\x00', b'').decode("utf-8")
+        if id == "KWAV":
+            logging.debug("Container: Processing internal WAV...")
+            self.chunk = KWAV(stream, check=False)
+        else:
+            raise TypeError("Unknown type in container: {}".format(id))
+
+        if sncm:
+            logging.warning("Container: Found internal SNCM")
+            self.sncm = stream.read(length - sncm)
+
+    def export(self, directory, filename):
+        self.chunk.export(directory, filename)
+
+class KWAV(Object):
+    def __init__(self, stream, check=True):
+        if check:
+            assert stream.read(4) == b'KWAV'
+
         length = struct.unpack("<L", stream.read(4))[0]
         self.data = stream.read(length)
 
@@ -58,9 +84,12 @@ class KWAV(Object):
         if not filename:
             filename = "{}-{}".format("KWAV", str(uuid.uuid4()))
 
-        command = ['ffmpeg', '-y', '-f', 's16le', '-ar', '11.025k', '-ac', '1', '-i', 'pipe:', os.path.join(directory, "{}.wav".format(filename))]
+        filename = os.path.join(directory, "{}.wav".format(filename))
+        command = ['ffmpeg', '-y', '-f', 's16le', '-ar', '11.025k', '-ac', '1', '-i', 'pipe:', filename]
         with subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) as p:
             p.stdin.write(self.data)
+
+        logging.debug("KWAV.export: Wrote output on {}".format(filename))
 
 def process(filename):
     logging.debug("Processing file: {}".format(filename))
@@ -79,7 +108,7 @@ def process(filename):
         stream.seek(0x010882)
         chunk_ids = {}
         try:
-            while True:
+            while stream.tell() < stream.size():
                 start = stream.tell()
                 chunk = CDChunk(stream)
 
@@ -87,7 +116,11 @@ def process(filename):
                     chunk_ids.update({chunk.id: 0})
 
                 chunk_ids[chunk.id] += 1
-                print("(@0x{:012x}) Chunk: {} (0x{:08x} bytes)".format(start, chunk.id, chunk.length))
+                logging.debug(
+                    "process: (0x{:012x} \\ 0x{:012x}) [{:2.2f}%] Chunk: {} (0x{:08x} bytes)".format(
+                        start, stream.size(), start/stream.size() * 100, chunk.id, chunk.length)
+                )
+
                 if args.export:
                     if callable(getattr(chunk.chunk, "export", None)):
                         chunk.chunk.export(args.export, "{}-{}".format(chunk.id, chunk_ids[chunk.id]))
