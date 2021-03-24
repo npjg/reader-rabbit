@@ -138,9 +138,9 @@ class ANG(Object):
             frames.append({
                 "x": struct.unpack("<H", stream.read(2))[0],
                 "y": struct.unpack("<H", stream.read(2))[0],
-                "n": struct.unpack("<H", stream.read(2))[0],
-                "unk": struct.unpack("<H", stream.read(2))[0]
+                "n": struct.unpack("<H", stream.read(2))[0]
             })
+            assert stream.read(2) == b'\x00\x00'
             assert stream.read(2) == b'\x01\x7f'
             logging.debug("ANG: Registered frame header: {}".format(frames[-1]))
 
@@ -176,7 +176,8 @@ class ANGFrame(Object):
 
         self.offsets.append(end)
 
-        assert stream.tell() == self.offsets[0]
+        # find ~/tmp/rr2 -name "*.dat"  -exec ./df.py '{}' \;
+        value_assert(stream.tell(), self.offsets[0])
         self.lines = []
         for offset in self.offsets[1:]:
             num = offset - stream.tell()
