@@ -11,6 +11,10 @@ import io
 import subprocess
 import uuid
 
+import PIL.Image as PILImage
+from mrcrowbar import utils
+
+
 def value_assert(stream, target, type="value", warn=False):
     ax = stream
     try:
@@ -26,6 +30,12 @@ def value_assert(stream, target, type="value", warn=False):
         logging.warning(msg)
     else:
         assert ax == target, msg
+
+def encode_filename(filename, fmt):
+    if filename[-4:] != ".{}".format(fmt.lower()):
+        filename += (".{}".format(fmt.lower()))
+
+    return filename
 
 class Object:
     def __format__(self, spec):
@@ -117,11 +127,16 @@ class ANG(Object):
         assert stream.read(4) == b'\x00' * 4
         
         unk1 = struct.unpack("<L", stream.read(4))[0] # 01 00 00 00
+        logging.debug("ANG: Unk1: {}".format(unk1))
+        assert unk1 == 1
+
         frame_count = struct.unpack("<L", stream.read(4))[0]
         logging.debug("ANG: Expecting {} frames".format(frame_count))
 
         assert stream.read(4) == b'\x00' * 4
         unk2 = struct.unpack("<L", stream.read(4))[0] # 00 00 00 01
+        logging.debug("ANG: Unk2: {}".format(unk1))
+        assert unk2 == 1
 
         offsets = []
         for _ in range(frame_count + 1):
@@ -149,27 +164,34 @@ class ANG(Object):
         self.frames = []
         for frame in frames:
             logging.debug("**** Reading frame {:03d} ****".format(frame["n"]))
-            self.frames.append(
-                frame.update({"frame": ANGFrame(stream)})
-            )
+            frame.update({"frame": ANGFrame(stream)})
+            self.frames.append(frame)
             logging.debug("***************************")
-            
+
+    def export(self, directory, **kwargs):
+        for i, frame in enumerate(self.frames):
+            frame["frame"].export(directory, str(i))
+
 class ANGFrame(Object):
     def __init__(self, stream, check=True):
         if check:
             value_assert(stream, b'P800')
 
-        unk1 = struct.unpack("<H", stream.read(2))[0] # width? or palette?
-        line_count = struct.unpack("<H", stream.read(2))[0]
-        logging.debug("ANGFrame: Expecting {} lines".format(line_count))
+        self.width = struct.unpack("<H", stream.read(2))[0] # width? or palette?
+        logging.debug("ANGFrame: Width: 0x{:04x}".format(self.width))
+
+        self.line_count = struct.unpack("<H", stream.read(2))[0]
+        logging.debug("ANGFrame: Expecting {} lines".format(self.line_count))
 
         unk2 = struct.unpack("<L", stream.read(4))[0] # 01 02 00 00
+        logging.debug("ANGFrame: Unk2: 0x{:04x}".format(unk2))
+        assert unk2 == 0x0201
 
         pos = stream.tell()
         end = struct.unpack("<L", stream.read(4))[0] + pos # byte count to end STARTS here, and also starts here for all succeeding offsets
 
         self.offsets = []
-        for _ in range(line_count):
+        for _ in range(self.line_count):
             offset = struct.unpack("<L", stream.read(4))[0]
             logging.debug("ANGFrame: Registered offset 0x{:04x} (true: 0x{:04x})".format(offset, offset + pos))
             self.offsets.append(offset + pos)
@@ -179,10 +201,46 @@ class ANGFrame(Object):
         # find ~/tmp/rr2 -name "*.dat"  -exec ./df.py '{}' \;
         value_assert(stream.tell(), self.offsets[0])
         self.lines = []
+        prev = self.offsets[0]
+
         for offset in self.offsets[1:]:
-            num = offset - stream.tell()
-            logging.debug("ANGFrame: Reading line 0x{:04x} -> 0x{:04x} (0x{:04x} bytes)".format(stream.tell(), offset, num))
-            self.lines.append(stream.read(num))
+            end = offset
+            length = offset - stream.tell()
+            logging.debug("ANGFrame: Reading line 0x{:04x} (0x{:04x}) -> 0x{:04x} (0x{:04x} bytes)".format(stream.tell(), prev, offset, length))
+
+            if length > self.width:
+                line = []
+                total = 0
+                prev = self.offsets[0]
+                while stream.tell() < end:
+                    logging.debug("(@0x{:012x}) Preparing for run...".format(stream.tell()))
+                    run = int.from_bytes(stream.read(1), byteorder='little')
+
+                    logging.debug("(@0x{:012x}) ANGFrame: Reading run (0x{:04x} bytes)".format(stream.tell(), run))
+                    line.append(stream.read(run))
+                    total += run
+
+                logging.debug("ANGFrame: Total line width: 0x{:04x}".format(total))
+                    # assert total <= length
+
+                self.lines.append(b''.join(line))
+                prev = offset
+                stream.seek(prev)
+            else:
+                self.lines.append(stream.read(length))
+
+            utils.hexdump(self.lines[-1])
+            # if num > self.width:
+                # input("Press any key to continue...")
+
+    def export(self, directory, filename, fmt="png"):
+        image = bytearray((self.width*self.line_count) * b'\x00')
+        for i, line in enumerate(self.lines):
+            image[(self.width*i):(self.width*i)+len(line)] = line
+
+        # logging.warning("{} \\ {}".format((self.width*self.line_count), len(image)))
+        output = PILImage.frombytes("P", (self.width, self.line_count), bytes(image))
+        output.save(encode_filename(os.path.join(directory, filename), fmt), fmt)
 
 def process(filename):
     logging.debug("Processing file: {}".format(filename))
