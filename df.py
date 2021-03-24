@@ -11,6 +11,22 @@ import io
 import subprocess
 import uuid
 
+def value_assert(stream, target, type="value", warn=False):
+    ax = stream
+    try:
+        ax = stream.read(len(target))
+    except AttributeError:
+        pass
+
+    msg = "Expected {} {}{}, received {}{}".format(
+        type, target, " (0x{:0>4x})".format(target) if isinstance(target, int) else "",
+        ax, " (0x{:0>4x})".format(ax) if isinstance(ax, int) else "",
+    )
+    if warn and ax != target:
+        logging.warning(msg)
+    else:
+        assert ax == target, msg
+
 class Object:
     def __format__(self, spec):
         return self.__repr__()
@@ -43,7 +59,7 @@ class CDChunk(Object):
         if self.id == 'KWAV':
             self.chunk = KWAV(stream)
         elif self.id == 'ANG':
-            self.chunk = ANG(stream, self.length)
+            self.chunk = ANG(stream)
         elif self.id == 'XXXX':
             if self.length == 0x0300: # Palette
                 self.chunk = stream.read(self.length)
@@ -96,15 +112,77 @@ class KWAV(Object):
         logging.debug("KWAV.export: Wrote output on {}".format(filename))
 
 class ANG(Object):
-    def __init__(self, stream, length):
-        self.data = stream.read(length)
+    def __init__(self, stream):
+        assert stream.read(4) == b'ANG\x00'
+        assert stream.read(4) == b'\x00' * 4
+        
+        unk1 = struct.unpack("<L", stream.read(4))[0] # 01 00 00 00
+        frame_count = struct.unpack("<L", stream.read(4))[0]
+        logging.debug("ANG: Expecting {} frames".format(frame_count))
 
-    def export(self, directory, filename):
-        return False
+        assert stream.read(4) == b'\x00' * 4
+        unk2 = struct.unpack("<L", stream.read(4))[0] # 00 00 00 01
 
-        filename = os.path.join(directory, "{}.dat".format(filename))
-        with open(filename, 'wb') as f:
-            f.write(self.data)
+        offsets = []
+        for _ in range(frame_count + 1):
+            offset = struct.unpack("<L", stream.read(4))[0]
+            logging.debug("ANG: Registered frame offset 0x{:04x}".format(offset))
+            offsets.append(offset)
+
+        stream.seek(offsets[0]) # TODO: Determine the lengths of this field
+        assert stream.tell() == offsets[0]
+
+        frames = []
+        for _ in range(frame_count):
+            assert stream.read(2) == b'\x02\x7f'
+            frames.append({
+                "x": struct.unpack("<H", stream.read(2))[0],
+                "y": struct.unpack("<H", stream.read(2))[0],
+                "n": struct.unpack("<H", stream.read(2))[0],
+                "unk": struct.unpack("<H", stream.read(2))[0]
+            })
+            assert stream.read(2) == b'\x01\x7f'
+            logging.debug("ANG: Registered frame header: {}".format(frames[-1]))
+
+        assert stream.read(2) == b'\x00\x7f'
+
+        self.frames = []
+        for frame in frames:
+            logging.debug("**** Reading frame {:03d} ****".format(frame["n"]))
+            self.frames.append(
+                frame.update({"frame": ANGFrame(stream)})
+            )
+            logging.debug("***************************")
+            
+class ANGFrame(Object):
+    def __init__(self, stream, check=True):
+        if check:
+            value_assert(stream, b'P800')
+
+        unk1 = struct.unpack("<H", stream.read(2))[0] # width? or palette?
+        line_count = struct.unpack("<H", stream.read(2))[0]
+        logging.debug("ANGFrame: Expecting {} lines".format(line_count))
+
+        unk2 = struct.unpack("<L", stream.read(4))[0] # 01 02 00 00
+
+        pos = stream.tell()
+        end = struct.unpack("<L", stream.read(4))[0] + pos # byte count to end STARTS here, and also starts here for all succeeding offsets
+
+        self.offsets = []
+        for _ in range(line_count):
+            offset = struct.unpack("<L", stream.read(4))[0]
+            logging.debug("ANGFrame: Registered offset 0x{:04x} (true: 0x{:04x})".format(offset, offset + pos))
+            self.offsets.append(offset + pos)
+
+        self.offsets.append(end)
+
+        assert stream.tell() == self.offsets[0]
+        self.lines = []
+        for offset in self.offsets[1:]:
+            num = offset - stream.tell()
+            logging.debug("ANGFrame: Reading line 0x{:04x} -> 0x{:04x} (0x{:04x} bytes)".format(stream.tell(), offset, num))
+            self.lines.append(stream.read(num))
+
 def process(filename):
     logging.debug("Processing file: {}".format(filename))
     if args.export:
