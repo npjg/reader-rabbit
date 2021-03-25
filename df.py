@@ -203,12 +203,12 @@ class ANGFrame(Object):
         self.lines = []
         prev = self.offsets[0]
 
-        for offset in self.offsets[1:]:
+        for i, offset in enumerate(self.offsets[1:]):
             end = offset
             length = offset - stream.tell()
-            logging.debug("ANGFrame: Reading line 0x{:04x} (0x{:04x}) -> 0x{:04x} (0x{:04x} bytes)".format(stream.tell(), prev, offset, length))
+            logging.debug("ANGFrame: ({}) Reading line 0x{:04x} (0x{:04x}) -> 0x{:04x} (0x{:04x} bytes)".format(i, stream.tell(), prev, offset, length))
 
-            if length > self.width:
+            if length > self.width and False:
                 line = []
                 total = 0
                 prev = self.offsets[0]
@@ -221,25 +221,30 @@ class ANGFrame(Object):
                     total += run
 
                 logging.debug("ANGFrame: Total line width: 0x{:04x}".format(total))
+                if total > length:
+                    logging.warning("ANGFrame: ^^^ Exceeded bounds")
                     # assert total <= length
 
                 self.lines.append(b''.join(line))
                 prev = offset
                 stream.seek(prev)
             else:
-                self.lines.append(stream.read(length))
+                data = bytearray(self.width)
+                line = stream.read(length)
+                utils.hexdump(line)
 
-            utils.hexdump(self.lines[-1])
-            # if num > self.width:
-                # input("Press any key to continue...")
+                line = line[max(0, len(line) - self.width):]
+
+                data[:len(line)] = line
+                value_assert(len(data), self.width)
+
+                self.lines.append(bytes(data))
+                
+        # input("Press any key to continue...")
 
     def export(self, directory, filename, fmt="png"):
-        image = bytearray((self.width*self.line_count) * b'\x00')
-        for i, line in enumerate(self.lines):
-            image[(self.width*i):(self.width*i)+len(line)] = line
-
         # logging.warning("{} \\ {}".format((self.width*self.line_count), len(image)))
-        output = PILImage.frombytes("P", (self.width, self.line_count), bytes(image))
+        output = PILImage.frombytes("P", (self.width, self.line_count), b''.join(self.lines))
         output.save(encode_filename(os.path.join(directory, filename), fmt), fmt)
 
 def process(filename):
