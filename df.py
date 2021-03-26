@@ -59,6 +59,7 @@ class HDChunk(Object):
 
 class CDChunk(Object):
     def __init__(self, stream):
+        self.chunk = None
         self.id = stream.read(0x04).replace(b'\x00', b'').decode("utf-8")
 
         assert stream.read(4) == b'\x00' * 4
@@ -80,7 +81,15 @@ class CDChunk(Object):
             else:
                 self.chunk = Container(stream)
         else:
+            logging.warning("CDChunk: Unknown chunk type: {}".format(self.id))
             self.chunk = stream.read(self.length)
+
+    def export(self, directory, filename, **kwargs):
+        if callable(getattr(self.chunk, "export", None)):
+            self.chunk.export(directory, filename)
+        else:
+            with open(os.path.join(directory, filename), 'wb') as of:
+                of.write(self.chunk)
 
 class Container(Object):
     def __init__(self, stream):
@@ -360,6 +369,7 @@ def process(filename):
         # stream.seek(0x5e96e8)
         stream.seek(0x010882)
         chunk_ids = {}
+        file_map = []
         try:
             while stream.tell() < stream.size():
                 start = stream.tell()
@@ -374,9 +384,18 @@ def process(filename):
                         start, stream.size(), start/stream.size() * 100, chunk.id, chunk.length)
                 )
 
+                file_map.append({
+                    "id": chunk.id,
+                    "start": "0x{:012x}".format(start),
+                    "length": chunk.length,
+                    "chunk": True if chunk.chunk else False
+                })
+
                 if args.export:
-                    if callable(getattr(chunk.chunk, "export", None)):
-                        chunk.chunk.export(args.export, "{}-{}".format(chunk.id, chunk_ids[chunk.id]))
+                    chunk.export(args.export, "{}-{}".format(chunk.id, chunk_ids[chunk.id]))
+
+                    with open(os.path.join(args.export, "df.json"), 'w') as fmap:
+                        json.dump(file_map, fp=fmap)
 
         except Exception as e:
             logging.error("Exception at {}:{:012x}".format(filename, stream.tell()))
