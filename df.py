@@ -108,12 +108,16 @@ class Container(Object):
         else:
             raise TypeError("Unknown type in container: {}".format(id))
 
+        self.sncm = None
         if sncm:
             logging.warning("Container: Found internal SNCM (0x{:012x} bytes)".format(length - sncm))
             self.sncm = stream.read(length - sncm)
 
     def export(self, directory, filename, **kwargs):
         self.chunk.export(directory, filename)
+        if self.sncm:
+            with open(os.path.join(directory, filename), 'wb') as of:
+                of.write(self.sncm)
 
 class FNT0(Object):
     def __init__(self, stream, size, check=True):
