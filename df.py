@@ -132,7 +132,7 @@ class CHR(Object):
         assert stream.read(0x100) == b'\x00' * 0x100
 
         component_count =  struct.unpack("<L", stream.read(4))[0]
-        logging.info("CHR: Expecting {} components".format(component_count))
+        logging.debug("CHR: Expecting {} components".format(component_count))
 
         self.names = []
         for i in range(component_count):
@@ -141,16 +141,16 @@ class CHR(Object):
                 "id": struct.unpack("<L", stream.read(4))[0]
             }
             self.names.append(name)
-            logging.info("CHR: Registered component: {}".format(name))
+            logging.debug("CHR: Registered component: {}".format(name))
 
         actn_count = struct.unpack("<L", stream.read(4))[0]
-        logging.info("CHR: Expecting {} ACTN chunks".format(actn_count))
+        logging.debug("CHR: Expecting {} ACTN chunks".format(actn_count))
 
         self.actns = []
         for i in range(actn_count):
-            logging.info("~~~~ ({}) ACTN ~~~~".format(i))
+            logging.debug("~~~~ ({}) ACTN ~~~~".format(i))
             self.actns.append(ACTN(stream, component_count))
-            logging.info("~" * 20)
+            logging.debug("~" * 20)
         
     def export(self, directory, filename, **kwargs):
         if filename:
@@ -182,7 +182,7 @@ class ACTN(Object):
             unk1 = struct.unpack("<L", stream.read(4))[0]
             if unk1 == 0:
                 self.parts.append(None)
-                logging.info("CHR: No part")
+                logging.debug("CHR: No part")
                 continue
 
             self.parts.append(ANG(stream))
@@ -226,7 +226,7 @@ class ANG(Object):
         assert unk1 == 1
 
         frame_count = struct.unpack("<L", stream.read(4))[0]
-        logging.info("ANG: Expecting {} frames".format(frame_count))
+        logging.debug("ANG: Expecting {} frames".format(frame_count))
 
         assert stream.read(4) == b'\x00' * 4
         unk2 = struct.unpack("<L", stream.read(4))[0] # 00 00 00 01
@@ -379,7 +379,7 @@ def process(filename):
                     chunk_ids.update({chunk.id: 0})
 
                 chunk_ids[chunk.id] += 1
-                logging.debug(
+                logging.info(
                     "process: (0x{:012x} \\ 0x{:012x}) [{:2.2f}%] Chunk: {} (0x{:08x} bytes)".format(
                         start, stream.size(), start/stream.size() * 100, chunk.id, chunk.length)
                 )
