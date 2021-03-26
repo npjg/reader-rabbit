@@ -136,7 +136,6 @@ class ANG(Object):
         assert stream.read(4) == b'\x00' * 4
         unk2 = struct.unpack("<L", stream.read(4))[0] # 00 00 00 01
         logging.debug("ANG: Unk2: {}".format(unk1))
-        assert unk2 == 1
 
         offsets = []
         for _ in range(frame_count + 1):
@@ -149,17 +148,28 @@ class ANG(Object):
 
         frames = []
         for _ in range(frame_count):
-            assert stream.read(2) == b'\x02\x7f'
+            header = stream.read(2)
+            while header != b'\x02\x7f':
+                header = stream.read(2)
+
             frames.append({
                 "x": struct.unpack("<H", stream.read(2))[0],
                 "y": struct.unpack("<H", stream.read(2))[0],
                 "n": struct.unpack("<H", stream.read(2))[0]
             })
             assert stream.read(2) == b'\x00\x00'
-            assert stream.read(2) == b'\x01\x7f'
+
+            footer = stream.read(2)
+            if footer == b'\x02\x7f':
+                stream.seek(stream.tell() - 2)
+            else:
+                assert footer == b'\x01\x7f'
             logging.debug("ANG: Registered frame header: {}".format(frames[-1]))
 
-        assert stream.read(2) == b'\x00\x7f'
+        # HACK: I don't actually know what the unk2 signifies, but it means a strante frame structure here.
+        footer = stream.read(2)
+        while footer != b'\x00\x7f':
+            footer = stream.read(2)
 
         self.frames = []
         for frame in frames:
@@ -187,6 +197,9 @@ class ANGFrame(Object):
         logging.debug("ANGFrame: Compression: 0x{:04x}".format(compressed))
 
         self.lines = []
+        if self.width == 0:
+            return
+        
         if compressed == 0x0201: # Crazy RLE format
             pos = stream.tell()
             end = struct.unpack("<L", stream.read(4))[0] + pos # byte count to end STARTS here, and also starts here for all succeeding offsets
