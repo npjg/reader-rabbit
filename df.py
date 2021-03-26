@@ -206,41 +206,26 @@ class ANGFrame(Object):
         for i, offset in enumerate(self.offsets[1:]):
             end = offset
             length = offset - stream.tell()
-            logging.debug("ANGFrame: ({}) Reading line 0x{:04x} (0x{:04x}) -> 0x{:04x} (0x{:04x} bytes)".format(i, stream.tell(), prev, offset, length))
+            logging.debug("ANGFrame: ({}) Reading line 0x{:04x} (0x{:04x}) -> 0x{:04x} (0x{:04x} bytes)".format(i+1, stream.tell(), prev, offset, length))
+            line = []
+            while stream.tell() < end:
+                # start = stream.tell()
+                # utils.hexdump(stream.read(length))
+                # stream.seek(start)
 
-            if length > self.width and False:
-                line = []
-                total = 0
-                prev = self.offsets[0]
-                while stream.tell() < end:
-                    logging.debug("(@0x{:012x}) Preparing for run...".format(stream.tell()))
-                    run = int.from_bytes(stream.read(1), byteorder='little')
+                op = int.from_bytes(stream.read(1), byteorder="little")
+                if op >> 7: # RLE byte next
+                    color = stream.read(1)
+                    run = color * (op & 0b01111111)
+                else: # unencoded data
+                    run = stream.read(op)
 
-                    logging.debug("(@0x{:012x}) ANGFrame: Reading run (0x{:04x} bytes)".format(stream.tell(), run))
-                    line.append(stream.read(run))
-                    total += run
+                line.append(run)
 
-                logging.debug("ANGFrame: Total line width: 0x{:04x}".format(total))
-                if total > length:
-                    logging.warning("ANGFrame: ^^^ Exceeded bounds")
-                    # assert total <= length
-
-                self.lines.append(b''.join(line))
-                prev = offset
-                stream.seek(prev)
-            else:
-                data = bytearray(self.width)
-                line = stream.read(length)
-                utils.hexdump(line)
-
-                line = line[max(0, len(line) - self.width):]
-
-                data[:len(line)] = line
-                value_assert(len(data), self.width)
-
-                self.lines.append(bytes(data))
-                
-        # input("Press any key to continue...")
+            line = b''.join(line)
+            line += b'\x00' * max(0, self.width - len(line))
+            assert len(line) == self.width
+            self.lines.append(line)
 
     def export(self, directory, filename, fmt="png"):
         # logging.warning("{} \\ {}".format((self.width*self.line_count), len(image)))
