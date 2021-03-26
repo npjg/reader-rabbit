@@ -318,10 +318,6 @@ class ANGFrame(Object):
                 logging.debug("ANGFrame: ({}) Reading line 0x{:04x} (0x{:04x}) -> 0x{:04x} (0x{:04x} bytes)".format(i+1, stream.tell(), prev, offset, length))
                 line = []
                 while stream.tell() < end:
-                    # start = stream.tell()
-                    # utils.hexdump(stream.read(length))
-                    # stream.seek(start)
-
                     op = int.from_bytes(stream.read(1), byteorder="little")
                     if op >> 7: # RLE byte next
                         color = stream.read(1)
