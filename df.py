@@ -96,7 +96,7 @@ class Container(Object):
             raise TypeError("Unknown type in container: {}".format(id))
 
         if sncm:
-            logging.warning("Container: Found internal SNCM")
+            logging.warning("Container: Found internal SNCM (0x{:012x} bytes)".format(length - sncm))
             self.sncm = stream.read(length - sncm)
 
     def export(self, directory, filename, **kwargs):
@@ -112,7 +112,7 @@ class CHR(Object):
         assert stream.read(0x100) == b'\x00' * 0x100
 
         component_count =  struct.unpack("<L", stream.read(4))[0]
-        logging.debug("CHR: Expecting {} components".format(component_count))
+        logging.info("CHR: Expecting {} components".format(component_count))
 
         self.names = []
         for i in range(component_count):
@@ -206,7 +206,7 @@ class ANG(Object):
         assert unk1 == 1
 
         frame_count = struct.unpack("<L", stream.read(4))[0]
-        logging.debug("ANG: Expecting {} frames".format(frame_count))
+        logging.info("ANG: Expecting {} frames".format(frame_count))
 
         assert stream.read(4) == b'\x00' * 4
         unk2 = struct.unpack("<L", stream.read(4))[0] # 00 00 00 01
@@ -394,5 +394,5 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
     main()
