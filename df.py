@@ -10,10 +10,10 @@ import mmap
 import io
 import subprocess
 import uuid
+import json
 
 import PIL.Image as PILImage
 from mrcrowbar import utils
-
 
 def value_assert(stream, target, type="value", warn=False):
     ax = stream
@@ -99,7 +99,7 @@ class Container(Object):
             logging.warning("Container: Found internal SNCM")
             self.sncm = stream.read(length - sncm)
 
-    def export(self, directory, filename):
+    def export(self, directory, filename, **kwargs):
         self.chunk.export(directory, filename)
 
 class KWAV(Object):
@@ -146,17 +146,19 @@ class ANG(Object):
         stream.seek(offsets[0]) # TODO: Determine the lengths of this field
         assert stream.tell() == offsets[0]
 
-        frames = []
+        self.meta_frames = []
         for _ in range(frame_count):
             header = stream.read(2)
             while header != b'\x02\x7f':
                 header = stream.read(2)
 
-            frames.append({
+            meta_frame = {
                 "x": struct.unpack("<H", stream.read(2))[0],
                 "y": struct.unpack("<H", stream.read(2))[0],
                 "n": struct.unpack("<H", stream.read(2))[0]
-            })
+            }
+
+            self.meta_frames.append(meta_frame)
             assert stream.read(2) == b'\x00\x00'
 
             footer = stream.read(2)
@@ -164,23 +166,30 @@ class ANG(Object):
                 stream.seek(stream.tell() - 2)
             else:
                 assert footer == b'\x01\x7f'
-            logging.debug("ANG: Registered frame header: {}".format(frames[-1]))
 
-        # HACK: I don't actually know what the unk2 signifies, but it means a strante frame structure here.
+            logging.debug("ANG: Registered frame header: {}".format(meta_frame))
+
+        # HACK: I don't actually know what the unk2 signifies, but it means a
+        # strante frame structure here.
         footer = stream.read(2)
         while footer != b'\x00\x7f':
             footer = stream.read(2)
 
         self.frames = []
-        for frame in frames:
+        for frame in self.meta_frames:
             logging.debug("**** Reading frame {:03d} ****".format(frame["n"]))
-            frame.update({"frame": ANGFrame(stream)})
-            self.frames.append(frame)
+            self.frames.append({"frame": ANGFrame(stream)})
             logging.debug("***************************")
 
-    def export(self, directory, **kwargs):
+    def export(self, directory, filename, **kwargs):
+        directory = os.path.join(directory, filename)
+        Path(directory).mkdir(parents=True, exist_ok=True)
+
         for i, frame in enumerate(self.frames):
             frame["frame"].export(directory, str(i))
+
+        with open(os.path.join(directory, "anim.json"), 'w') as header:
+            json.dump(self.meta_frames, fp=header)
 
 class ANGFrame(Object):
     def __init__(self, stream, check=True):
