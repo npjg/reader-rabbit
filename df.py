@@ -77,6 +77,8 @@ class CDChunk(Object):
             self.chunk = CHR(stream, self.length)
         elif self.id == 'P800':
             self.chunk = ANGFrame(stream)
+        elif self.id == 'SNCM':
+            self.chunk = SNCM(stream)
         elif self.id == 'XXXX':
             if self.length == 0x0300: # Palette
                 self.chunk = stream.read(self.length)
@@ -219,6 +221,36 @@ class KWAV(Object):
             p.stdin.write(self.data)
 
         logging.debug("KWAV.export: Wrote output on {}".format(filename))
+
+class SNCM(Object): # What does this mean?
+    def __init__(self, stream):
+        assert stream.read(4) == b'SNCM'
+        assert stream.read(4) == b'\x00' * 4
+
+        line_count = struct.unpack("<L", stream.read(4))[0]
+        logging.debug("SNCM: Expecting {} lines".format(line_count))
+
+        # Do we know how mnay azeros there are?
+        while stream.read(1) == b'\x00':
+            continue
+
+        stream.seek(stream.tell() - 1)
+
+        self.lines = []
+        for i  in range(line_count):
+            size = struct.unpack("<L", stream.read(4))[0]
+            if i == 0:
+                self.size = size
+
+            run = stream.read(size)
+
+            self.lines.append(run)
+
+    def export(self, directory, filename, **kwargs):
+        with open("{}.txt".format(os.path.join(directory, filename)), 'w') as of:
+            for line in self.lines:
+                of.write(str(list(line)))
+            # of.write(b''.join(self.lines))
 
 class ANG(Object):
     def __init__(self, stream):
