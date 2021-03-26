@@ -75,6 +75,8 @@ class CDChunk(Object):
             self.chunk = FNT0(stream, self.length)
         elif self.id == 'CHR':
             self.chunk = CHR(stream, self.length)
+        elif self.id == 'P800':
+            self.chunk = ANGFrame(stream)
         elif self.id == 'XXXX':
             if self.length == 0x0300: # Palette
                 self.chunk = stream.read(self.length)
