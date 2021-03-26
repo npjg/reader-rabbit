@@ -102,6 +102,63 @@ class Container(Object):
     def export(self, directory, filename, **kwargs):
         self.chunk.export(directory, filename)
 
+
+class CHR(Object):
+    def __init__(self, stream, check=True):
+        assert stream.read(4) == b'CHR\x00'
+        assert stream.read(4) == b'\x00' * 4
+
+        length = struct.unpack("<L", stream.read(4))[0]
+        assert stream.read(0x100) == b'\x00' * 0x100
+
+        component_count =  struct.unpack("<L", stream.read(4))[0]
+        logging.debug("CHR: Expecting {} components".format(component_count))
+
+        self.names = []
+        for i in range(component_count):
+            name = {
+                "string": stream.read(0x13c).replace(b'\x00', b'').decode("utf-8"),
+                "id": struct.unpack("<L", stream.read(4))[0]
+            }
+            self.names.append(name)
+            logging.debug("CHR: Registered component: {}".format(name))
+
+        actn_count = struct.unpack("<L", stream.read(4))[0]
+        logging.debug("CHR: Expecting {} ACTN chunks".format(actn_count))
+
+        self.actns = []
+        for i in range(actn_count):
+            self.actns.append(ACTN(stream, component_count))
+        
+    # def export(self, directory, filename, **kwargs):
+    #     with open(os.path.join(directory, filename), 'wb') as of:
+    #         of.write(self.data)
+
+class ACTN(Object):
+    def __init__(self, stream, component_count, check=True):
+        if check:
+            assert stream.read(4) == b'ACTN'
+
+        assert stream.read(4) == b'\x00' * 4
+        length = struct.unpack("<L", stream.read(4))[0]
+        assert stream.read(0x100) == b'\x00' * 0x100
+
+        self.name = stream.read(0x40).replace(b'\x00', b'').decode("utf-8")
+        for i in range(component_count):
+            assert stream.read(4) == b'PART'
+            assert stream.read(4) == b'\x00' * 4
+
+            part_length = struct.unpack("<L", stream.read(4))[0]
+            for _ in range(2):
+                stream.read(0x40).replace(b'\x00', b'').decode("utf-8")
+
+            unk1 = struct.unpack("<L", stream.read(4))[0]
+            if unk1 == 0:
+                continue
+
+            logging.debug("Reading ANG: 0x{:04x}".format(stream.tell()))
+            ang = ANG(stream)
+            
 class KWAV(Object):
     def __init__(self, stream, check=True):
         if check:
