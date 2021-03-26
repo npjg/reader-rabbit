@@ -70,6 +70,10 @@ class CDChunk(Object):
             self.chunk = KWAV(stream)
         elif self.id == 'ANG':
             self.chunk = ANG(stream)
+        elif self.id == 'FNT0':
+            self.chunk = FNT0(stream, self.length)
+        elif self.id == 'CHR':
+            self.chunk = CHR(stream, self.length)
         elif self.id == 'XXXX':
             if self.length == 0x0300: # Palette
                 self.chunk = stream.read(self.length)
@@ -102,6 +106,13 @@ class Container(Object):
     def export(self, directory, filename, **kwargs):
         self.chunk.export(directory, filename)
 
+class FNT0(Object):
+    def __init__(self, stream, size, check=True):
+        self.data = stream.read(size)
+
+    def export(self, directory, filename, **kwargs):
+        with open(os.path.join(directory, filename), 'wb') as of:
+            of.write(self.data)
 
 class CHR(Object):
     def __init__(self, stream, check=True):
