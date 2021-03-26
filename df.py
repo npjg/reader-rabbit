@@ -246,7 +246,9 @@ class ANGFrame(Object):
             raise ValueError("Unknown compression type: 0x{:04x}".format(compressed))
 
     def export(self, directory, filename, fmt="png"):
-        # logging.warning("{} \\ {}".format((self.width*self.line_count), len(image)))
+        if self.width == 0 or self.line_count == 0:
+            return
+        
         output = PILImage.frombytes("P", (self.width, self.line_count), b''.join(self.lines))
         output.save(encode_filename(os.path.join(directory, filename), fmt), fmt)
 
