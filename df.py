@@ -121,18 +121,24 @@ class CHR(Object):
                 "id": struct.unpack("<L", stream.read(4))[0]
             }
             self.names.append(name)
-            logging.debug("CHR: Registered component: {}".format(name))
+            logging.info("CHR: Registered component: {}".format(name))
 
         actn_count = struct.unpack("<L", stream.read(4))[0]
-        logging.debug("CHR: Expecting {} ACTN chunks".format(actn_count))
+        logging.info("CHR: Expecting {} ACTN chunks".format(actn_count))
 
         self.actns = []
         for i in range(actn_count):
+            logging.info("~~~~ ({}) ACTN ~~~~".format(i))
             self.actns.append(ACTN(stream, component_count))
+            logging.info("~" * 20)
         
-    # def export(self, directory, filename, **kwargs):
-    #     with open(os.path.join(directory, filename), 'wb') as of:
-    #         of.write(self.data)
+    def export(self, directory, filename, **kwargs):
+        if filename:
+            directory = os.path.join(directory, filename)
+        
+        Path(directory).mkdir(parents=True, exist_ok=True)
+        for i, actn in enumerate(self.actns):
+            actn.export(directory, str(i))
 
 class ACTN(Object):
     def __init__(self, stream, component_count, check=True):
@@ -144,21 +150,31 @@ class ACTN(Object):
         assert stream.read(0x100) == b'\x00' * 0x100
 
         self.name = stream.read(0x40).replace(b'\x00', b'').decode("utf-8")
+        self.parts = []
         for i in range(component_count):
             assert stream.read(4) == b'PART'
             assert stream.read(4) == b'\x00' * 4
 
             part_length = struct.unpack("<L", stream.read(4))[0]
-            for _ in range(2):
-                stream.read(0x40).replace(b'\x00', b'').decode("utf-8")
+            name = stream.read(0x40).replace(b'\x00', b'').decode("utf-8")
+            name2 = stream.read(0x40).replace(b'\x00', b'').decode("utf-8")
 
             unk1 = struct.unpack("<L", stream.read(4))[0]
             if unk1 == 0:
+                self.parts.append(None)
+                logging.info("CHR: No part")
                 continue
 
-            logging.debug("Reading ANG: 0x{:04x}".format(stream.tell()))
-            ang = ANG(stream)
-            
+            self.parts.append(ANG(stream))
+
+    def export(self, directory, filename, **kwargs):
+        if filename:
+            directory = os.path.join(directory, filename)
+                   
+        Path(directory).mkdir(parents=True, exist_ok=True)
+        for i, part in enumerate(self.parts):
+            if part: part.export(directory, str(i))
+
 class KWAV(Object):
     def __init__(self, stream, check=True):
         if check:
@@ -240,7 +256,9 @@ class ANG(Object):
             logging.debug("***************************")
 
     def export(self, directory, filename, **kwargs):
-        directory = os.path.join(directory, filename)
+        if filename:
+            directory = os.path.join(directory, filename)
+
         Path(directory).mkdir(parents=True, exist_ok=True)
 
         for i, frame in enumerate(self.frames):
