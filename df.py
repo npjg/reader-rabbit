@@ -123,6 +123,8 @@ class KWAV(Object):
 
 class ANG(Object):
     def __init__(self, stream):
+        start = stream.tell()
+
         assert stream.read(4) == b'ANG\x00'
         assert stream.read(4) == b'\x00' * 4
         
@@ -143,8 +145,7 @@ class ANG(Object):
             logging.debug("ANG: Registered frame offset 0x{:04x}".format(offset))
             offsets.append(offset)
 
-        stream.seek(offsets[0]) # TODO: Determine the lengths of this field
-        assert stream.tell() == offsets[0]
+        stream.seek(offsets[0] + start) # TODO: Determine the lengths of this field
 
         self.meta_frames = []
         for _ in range(frame_count):
