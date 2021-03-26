@@ -177,55 +177,60 @@ class ANGFrame(Object):
         if check:
             value_assert(stream, b'P800')
 
-        self.width = struct.unpack("<H", stream.read(2))[0] # width? or palette?
+        self.width = struct.unpack("<H", stream.read(2))[0]
         logging.debug("ANGFrame: Width: 0x{:04x}".format(self.width))
 
         self.line_count = struct.unpack("<H", stream.read(2))[0]
         logging.debug("ANGFrame: Expecting {} lines".format(self.line_count))
 
-        unk2 = struct.unpack("<L", stream.read(4))[0] # 01 02 00 00
-        logging.debug("ANGFrame: Unk2: 0x{:04x}".format(unk2))
-        assert unk2 == 0x0201
+        compressed = struct.unpack("<L", stream.read(4))[0]
+        logging.debug("ANGFrame: Compression: 0x{:04x}".format(compressed))
 
-        pos = stream.tell()
-        end = struct.unpack("<L", stream.read(4))[0] + pos # byte count to end STARTS here, and also starts here for all succeeding offsets
-
-        self.offsets = []
-        for _ in range(self.line_count):
-            offset = struct.unpack("<L", stream.read(4))[0]
-            logging.debug("ANGFrame: Registered offset 0x{:04x} (true: 0x{:04x})".format(offset, offset + pos))
-            self.offsets.append(offset + pos)
-
-        self.offsets.append(end)
-
-        # find ~/tmp/rr2 -name "*.dat"  -exec ./df.py '{}' \;
-        value_assert(stream.tell(), self.offsets[0])
         self.lines = []
-        prev = self.offsets[0]
+        if compressed == 0x0201: # Crazy RLE format
+            pos = stream.tell()
+            end = struct.unpack("<L", stream.read(4))[0] + pos # byte count to end STARTS here, and also starts here for all succeeding offsets
 
-        for i, offset in enumerate(self.offsets[1:]):
-            end = offset
-            length = offset - stream.tell()
-            logging.debug("ANGFrame: ({}) Reading line 0x{:04x} (0x{:04x}) -> 0x{:04x} (0x{:04x} bytes)".format(i+1, stream.tell(), prev, offset, length))
-            line = []
-            while stream.tell() < end:
-                # start = stream.tell()
-                # utils.hexdump(stream.read(length))
-                # stream.seek(start)
+            self.offsets = []
+            for _ in range(self.line_count):
+                offset = struct.unpack("<L", stream.read(4))[0]
+                logging.debug("ANGFrame: Registered offset 0x{:04x} (true: 0x{:04x})".format(offset, offset + pos))
+                self.offsets.append(offset + pos)
 
-                op = int.from_bytes(stream.read(1), byteorder="little")
-                if op >> 7: # RLE byte next
-                    color = stream.read(1)
-                    run = color * (op & 0b01111111)
-                else: # unencoded data
-                    run = stream.read(op)
+            self.offsets.append(end)
 
-                line.append(run)
+            # find ~/tmp/rr2 -name "*.dat"  -exec ./df.py '{}' \;
+            value_assert(stream.tell(), self.offsets[0])
+            prev = self.offsets[0]
 
-            line = b''.join(line)
-            line += b'\x00' * max(0, self.width - len(line))
-            assert len(line) == self.width
-            self.lines.append(line)
+            for i, offset in enumerate(self.offsets[1:]):
+                end = offset
+                length = offset - stream.tell()
+                logging.debug("ANGFrame: ({}) Reading line 0x{:04x} (0x{:04x}) -> 0x{:04x} (0x{:04x} bytes)".format(i+1, stream.tell(), prev, offset, length))
+                line = []
+                while stream.tell() < end:
+                    # start = stream.tell()
+                    # utils.hexdump(stream.read(length))
+                    # stream.seek(start)
+
+                    op = int.from_bytes(stream.read(1), byteorder="little")
+                    if op >> 7: # RLE byte next
+                        color = stream.read(1)
+                        run = color * (op & 0b01111111)
+                    else: # unencoded data
+                        run = stream.read(op)
+
+                    line.append(run)
+
+                line = b''.join(line)
+                line += b'\x00' * max(0, self.width - len(line))
+                assert len(line) == self.width
+                self.lines.append(line)
+        elif compressed == 0x0001: # uncompressed bitmap
+            for i in range(self.line_count):
+                self.lines.append(stream.read(self.width))
+        else:
+            raise ValueError("Unknown compression type: 0x{:04x}".format(compressed))
 
     def export(self, directory, filename, fmt="png"):
         # logging.warning("{} \\ {}".format((self.width*self.line_count), len(image)))
